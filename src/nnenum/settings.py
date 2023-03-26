@@ -34,7 +34,7 @@ class Settings(metaclass=FreezableMeta):
         except AttributeError:
             pass
         
-        cls.NUM_PROCESSES = num_cores # use multiple cores
+        cls.NUM_PROCESSES = 0 #num_cores # use multiple cores
         cls.TIMEOUT = np.inf # verification timeout, in seconds (np.inf = no timeout)
 
         cls.SINGLE_SET = False # only do single-set overapproximation (no splitting)

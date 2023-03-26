@@ -1,7 +1,7 @@
 '''
-Stanley Bak
-May 2018
-GLPK python interface using swiglpk
+Ali A.Bigdeli
+March 2023
+a class for comparing GLPK and Gurobi
 '''
 
 import sys
@@ -13,6 +13,8 @@ from scipy.sparse import csr_matrix
 
 from termcolor import colored
 
+from nnenum.lpinstance_gb import LpInstanceGB
+from nnenum.lpinstance_glpk import LpInstanceGLPK
 import swiglpk as glpk
 from nnenum.util import Freezable
 from nnenum.timerutil import Timers
@@ -62,22 +64,13 @@ class LpInstance(Freezable):
     def __init__(self, other_lpi=None):
         'initialize the lp instance'
 
-        self.lp = glpk.glp_create_prob() # pylint: disable=invalid-name
-        
         if other_lpi is None:
-            # internal bookkeeping
-            self.names = [] # column names
-
-            # setup lp params
+            self.lpglpk = LpInstanceGLPK(other_lpi)
+            self.lpgb = LpInstanceGB(other_lpi)
         else:
-            # initialize from other lpi
-            self.names = other_lpi.names.copy()
-                
-            Timers.tic('glp_copy_prob')
-            glpk.glp_copy_prob(self.lp, other_lpi.lp, glpk.GLP_OFF)
-            Timers.toc('glp_copy_prob')
+            self.lpglpk = LpInstanceGLPK(other_lpi.lpglpk)
+            self.lpgb = LpInstanceGB(other_lpi.lpgb)
 
-        self.freeze_attrs()
 
     def __del__(self):
         if hasattr(self, 'lp') and self.lp is not None:
@@ -375,16 +368,18 @@ class LpInstance(Freezable):
     def get_num_rows(self):
         'get the number of rows in the lp'
 
-        return glpk.glp_get_num_rows(self.lp)
+        if self.lpglpk.get_num_rows() == self.lpgb.get_num_rows():
+            return self.lpglpk.get_num_rows()
+        else:
+            raise RuntimeError(f"'get_num_rows' doesn't match by GLPK and GUROBI")
 
     def get_num_cols(self):
         'get the number of columns in the lp'
 
-        cols = glpk.glp_get_num_cols(self.lp)
-
-        assert cols == len(self.names), f"lp had {cols} columns, but names list had {len(self.names)} names"
-
-        return cols
+        if self.lpglpk.get_num_cols() == self.lpgb.get_num_cols():
+            return self.lpglpk.get_num_cols()
+        else:
+            raise RuntimeError(f"'get_num_cols' doesn't match by GLPK and GUROBI")
 
     def add_rows_less_equal(self, rhs_vec):
         '''add rows to the LP with <= constraints
@@ -420,17 +415,8 @@ class LpInstance(Freezable):
     def add_positive_cols(self, names):
         'add a certain number of columns to the LP with positive bounds'
 
-        assert isinstance(names, list)
-        num_vars = len(names)
-
-        if num_vars > 0:
-            num_cols = self.get_num_cols()
-
-            self.names += names
-            glpk.glp_add_cols(self.lp, num_vars)
-
-            for i in range(num_vars):
-                glpk.glp_set_col_bnds(self.lp, num_cols + i + 1, glpk.GLP_LO, 0, 0)  # var with lower bounds (0, inf)
+        self.lpglpk.add_positive_cols(names)
+        self.lpgb.add_positive_cols(names)
 
     def add_cols(self, names):
         'add a certain number of columns to the LP'
@@ -450,29 +436,8 @@ class LpInstance(Freezable):
     def add_double_bounded_cols(self, names, lb, ub):
         'add a certain number of columns to the LP with the given lower and upper bound'
 
-        assert lb != -np.inf
-
-        lb = float(lb)
-        ub = float(ub)
-        assert lb <= ub, f"lb ({lb}) <= ub ({ub}). dif: {ub - lb}"
-
-        assert isinstance(names, list)
-        num_vars = len(names)
-
-        if num_vars > 0:
-            num_cols = self.get_num_cols()
-
-            self.names += names
-            glpk.glp_add_cols(self.lp, num_vars)
-
-            for i in range(num_vars):
-                if lb == ub:
-                    glpk.glp_set_col_bnds(self.lp, num_cols + i + 1, glpk.GLP_FX, lb, ub)  # fixed variable
-                elif ub == np.inf:
-                    glpk.glp_set_col_bnds(self.lp, num_cols + i + 1, glpk.GLP_LO, lb, ub)  # lower-bounded variable
-                else:
-                    assert lb < ub
-                    glpk.glp_set_col_bnds(self.lp, num_cols + i + 1, glpk.GLP_DB, lb, ub)  # double-bounded variable
+        self.lpglpk.add_double_bounded_cols(names, lb, ub)
+        self.lpgb.add_double_bounded_cols(names, lb, ub)
 
     def add_dense_row(self, vec, rhs, normalize=True):
         '''
@@ -481,25 +446,8 @@ class LpInstance(Freezable):
 
         Timers.tic('add_dense_row')
 
-        assert isinstance(vec, np.ndarray)
-        assert len(vec.shape) == 1 or vec.shape[0] == 1
-        assert len(vec) == self.get_num_cols(), f"vec had {len(vec)} values, but lpi has {self.get_num_cols()} cols"
-
-        if normalize and not Settings.SKIP_CONSTRAINT_NORMALIZATION:
-            norm = np.linalg.norm(vec)
-            
-            if norm > 1e-9:
-                vec = vec / norm
-                rhs = rhs / norm
-
-        rows_before = self.get_num_rows()
-
-        self.add_rows_less_equal([rhs])
-
-        data_vec = SwigArray.as_double_array(vec, vec.size)
-        indices_vec = SwigArray.get_sequential_int_array(vec.size)
-
-        glpk.glp_set_mat_row(self.lp, rows_before + 1, vec.size, indices_vec, data_vec)
+        self.lpglpk.add_dense_row(vec, rhs, normalize)
+        self.lpgb.add_dense_row(vec, rhs, normalize)
 
         Timers.toc('add_dense_row')
 
@@ -659,77 +607,12 @@ class LpInstance(Freezable):
         returns None if UNSAT, otherwise the optimization result.
         '''
 
-        assert not isinstance(self.lp, tuple), "self.lp was tuple. Did you call lpi.deserialize()?"
-
-        if direction_vec is None:
-            direction_vec = [0] * self.get_num_cols()
-
-        self.set_minimize_direction(direction_vec)
-
-        if Settings.GLPK_RESET_BEFORE_MINIMIZE:
-            self.reset_basis()
-        
-        start = time.perf_counter()
-        simplex_res = glpk.glp_simplex(self.lp, get_lp_params())
-
-        if simplex_res != 0: # solver failure (possibly timeout)
-            r = self.get_num_rows()
-            c = self.get_num_cols()
-
-            diff = time.perf_counter() - start
-            print(f"GLPK timed out / failed ({simplex_res}) after {round(diff, 3)} sec with primary " + \
-                  f"settings with {r} rows and {c} cols")
-
-            print("Retrying with reset")
-            self.reset_basis()
-            start = time.perf_counter()
-            simplex_res = glpk.glp_simplex(self.lp, get_lp_params())
-            diff = time.perf_counter() - start
-            print(f"result with reset  ({simplex_res}) {round(diff, 3)} sec")
-
-            print("Retrying with reset + alternate GLPK settings")
-                    
-            # retry with alternate params
-            params = get_lp_params(alternate_lp_params=True)
-            self.reset_basis()
-            start = time.perf_counter()
-            simplex_res = glpk.glp_simplex(self.lp, params)
-            diff = time.perf_counter() - start
-            print(f"result with reset & alternate settings ({simplex_res}) {round(diff, 3)} sec")
-            
-        rv = self._process_simplex_result(simplex_res)
-
-        if rv is None and fail_on_unsat:
-            # extra logic to try harder if fail_on_unsafe is True
-            # glpk can sometimes be cajoled into providing a solution
-            
-            print("Note: minimize failed with fail_on_unsat was true, trying to reset basis...")
-
-            self.reset_basis()
-            rv = self.minimize(direction_vec, fail_on_unsat=False)
-
-            if rv is None:
-                print("still unsat after reset basis, trying no-dir optimization")
-                self.reset_basis()
-            
-                result_nodir = self.minimize(None, fail_on_unsat=False)
-
-                # lp became infeasible when I picked an optimization direction
-                if result_nodir is not None:
-                    print("Using result from no-direction optimization") 
-                    rv = result_nodir
-                else:
-                    print("Error: No-dir result was also infeasible!")
-                    
-                    if self.get_num_rows() < 50 and self.get_num_cols() < 50:
-                        print(f"{self}")
-            else:
-                print("Using result after reset basis (soltion was now feasible)")
-
-        if rv is None and fail_on_unsat:
-            raise UnsatError("minimize returned UNSAT and fail_on_unsat was True")
-
-        return rv
+        rv = self.lpglpk.minimize(direction_vec, fail_on_unsat)
+        rv2 = self.lpgb.minimize(direction_vec, fail_on_unsat)
+        if direction_vec is None or np.abs(np.dot(rv, direction_vec) - np.dot(rv2, direction_vec)) < 0.00005:
+            return rv2
+        else:
+            raise RuntimeError(f"'minimize' doesn't match by GLPK and GUROBI")
 
     @staticmethod
     def get_simplex_error_string(simplex_res):

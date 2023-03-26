@@ -6,11 +6,14 @@ Stanley Bak
 
 import numpy as np
 
-from nnenum.lpinstance import LpInstance
+from nnenum.lpinstance_gb import LpInstanceGB as LpInstance
+# from nnenum.lpinstance_glpk import LpInstanceGLPK as LpInstance
+# from nnenum.lpinstance import LpInstance
 from nnenum.util import Freezable
 from nnenum.settings import Settings
 from nnenum.timerutil import Timers
 from nnenum import kamenev
+
 
 class LpStar(Freezable):
     '''generalized star set with lp constraints
@@ -52,6 +55,7 @@ class LpStar(Freezable):
                 for _ in range(len(box_bounds)):
                     self.input_bounds_witnesses.append([min_pt, max_pt])
             
+            
             self.lpi = LpInstance()
 
             for i, (lb, ub) in enumerate(box_bounds):
@@ -92,7 +96,7 @@ class LpStar(Freezable):
         rv = LpStar(a_mat=self.a_mat.copy(), bias=self.bias.copy())
 
         rv.lpi = LpInstance(self.lpi)
-
+        
         Timers.tic('copy init bm bias')
 
         if self.input_bounds_witnesses is not None:
