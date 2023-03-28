@@ -32,11 +32,11 @@ class LpInstanceGB(Freezable):
 
         if other_lpi is not None:
             Timers.tic('gb_copy_model')
-            self.model = other_lpi.model.copy()
+            self.lp = other_lpi.lp.copy()
             Timers.toc('gb_copy_model')
         else:
-            self.model = gp.Model()
-            self.model.setParam('OutputFlag', False)
+            self.lp = gp.Model()
+            self.lp.setParam('OutputFlag', False)
 
             # self.init_from_box(box)
 
@@ -57,62 +57,69 @@ class LpInstanceGB(Freezable):
         assert self.need_update
 
         self.need_update = False
-        self.model.update()    
+        self.lp.update()    
 
     def get_vars(self):
         """get the vars"""
 
-        self.model.update()
-        return self.model.getVars()
+        self.lp.update()
+        return self.lp.getVars()
     
-    # def serialize(self):
-    #     'serialize self.lp from a glpk instance into a tuple'
+    def serialize(self):
+        'serialize self.lp from a gurobi model into a tuple'
 
-    #     Timers.tic('serialize')
+        Timers.tic('serialize')
         
-    #     # get constraints as csr matrix
-    #     lp_rows = self.get_num_rows()
-    #     lp_cols = self.get_num_cols()
-
-
-
-    #     inds_row = SwigArray.get_int_array(lp_cols + 1)
-    #     vals_row = SwigArray.get_double_array(lp_cols + 1)
-
-    #     data = []
-    #     glpk_indices = []
-    #     indptr = [0]
-
-    #     for row in range(lp_rows):
-    #         got_len = glpk.glp_get_mat_row(self.lp, row + 1, inds_row, vals_row)
-
-    #         for i in range(1, got_len+1):
-    #             data.append(vals_row[i])
-    #             glpk_indices.append(inds_row[i])
-
-    #         indptr.append(len(data))
+        # get constraints as csr matrix
+        A_sparse = self.lp.getA()
             
-    #     # rhs
-    #     rhs = []
+        # rhs
+        rhs = self.lp.getAttr('rhs', self.lp.getConstrs())
+
+        # Get the lower bounds of all variables
+        lbs = self.lp.getAttr(gp.GRB.Attr.LB, self.lp.getVars())
+        # Get the upper bounds of all variables
+        ubs = self.lp.getAttr(gp.GRB.Attr.UB, self.lp.getVars())
+        # Get the names of all variables
+        var_names = [var.varName for var in self.lp.getVars()]
+
+        # remember to free lp object before overwriting with tuple
+        self.lp.dispose()
+        self.lp = (A_sparse, rhs, lbs, ubs, var_names)
+
+        Timers.toc('serialize')
+
+
+    def deserialize(self):
+        'deserialize self.lp from a tuple into a gorubi model'
+
+        assert isinstance(self.lp, tuple)
+
+        Timers.tic('deserialize')
+
+        A_sparse, rhs, lbs, ubs, var_names = self.lp
+
+        assert len(ubs) == len(var_names)
+
+        self.lp = gp.Model()
+
+        n_variables = len(var_names)
+        x = self.lp.addVars(n_variables, lb=lbs, ub=ubs, name=var_names)
+
+        # Define constraints
+        for i in range(len(rhs)):
+            lhs_expr = gp.quicksum(A_sparse[i, j]*x[j] for j in range(n_variables))
+            self.lp.addConstr(lhs_expr <= rhs[i], name=f"R{i}")
         
-    #     for row in range(lp_rows):
-    #         assert glpk.glp_get_row_type(self.lp, row + 1) == glpk.GLP_UP
-
-    #         rhs.append(glpk.glp_get_row_ub(self.lp, row + 1))
-
-    #     col_bounds = self._get_col_bounds()
-
-    #     # remember to free lp object before overwriting with tuple
-    #     glpk.glp_delete_prob(self.lp)
-    #     self.lp = (data, glpk_indices, indptr, rhs, col_bounds)
-
-    #     Timers.toc('serialize')
-
+        self.lp.update()
+        
+        Timers.toc('deserialize')
+    
 
     def add_var(self, name, lb, ub):
         """add a bounded variable, get stored in self.vars"""
 
-        self.model.addVar(lb=lb, ub=ub, vtype=GRB.CONTINUOUS, name=name)
+        self.lp.addVar(lb=lb, ub=ub, vtype=GRB.CONTINUOUS, name=name)
     
     
     def add_double_bounded_cols(self, names, lb, ub):
@@ -130,8 +137,8 @@ class LpInstanceGB(Freezable):
         if num_vars > 0:
 
             for i in range(num_vars):
-                self.model.addVar(lb=lb, ub=ub, vtype=GRB.CONTINUOUS, name=names[i])
-                self.model.update()
+                self.lp.addVar(lb=lb, ub=ub, vtype=GRB.CONTINUOUS, name=names[i])
+                self.lp.update()
 
     def add_positive_cols(self, names):
         'add a certain number of columns to the LP with positive bounds'
@@ -142,7 +149,18 @@ class LpInstanceGB(Freezable):
         if num_vars > 0:
 
             for i in range(num_vars):
-                self.model.addVar(lb=0, ub=float('inf'), vtype=GRB.CONTINUOUS, name=names[i]) # var with lower bounds (0, inf)
+                self.lp.addVar(lb=0, ub=float('inf'), vtype=GRB.CONTINUOUS, name=names[i]) # var with lower bounds (0, inf)
+
+    def add_cols(self, names):
+        'add a certain number of columns to the LP'
+
+        assert isinstance(names, list)
+        num_vars = len(names)
+
+        if num_vars > 0:
+
+            for i in range(num_vars):
+                self.lp.addVar(lb=float('-inf'), ub=float('inf'), vtype=GRB.CONTINUOUS, name=names[i]) # free variable (-inf, inf)
 
     def add_dense_row(self, vec, rhs, normalize=True):
         '''
@@ -164,7 +182,7 @@ class LpInstanceGB(Freezable):
 
         variables = self.get_vars()
 
-        self.model.addLConstr(LinExpr(vec, variables), GRB.LESS_EQUAL, rhs)
+        self.lp.addLConstr(LinExpr(vec, variables), GRB.LESS_EQUAL, rhs)
 
         self.need_update = True
 
@@ -178,14 +196,14 @@ class LpInstanceGB(Freezable):
     def get_num_cols(self):
         'get the number of cols in the lp'
 
-        self.model.update()
-        return self.model.NumVars
+        self.lp.update()
+        return self.lp.NumVars
     
     def get_num_rows(self):
         'get the number of rows in the lp'
         
-        self.model.update()
-        return len(self.model.getConstrs())
+        self.lp.update()
+        return len(self.lp.getConstrs())
     
     def minimize(self, obj_vec, fail_on_unsat=True):
         """return minimum point or raise MinimizeFailed exception"""
@@ -204,22 +222,22 @@ class LpInstanceGB(Freezable):
         if self.need_update:
             self.update()
 
-        self.model.setObjective(obj_vec @ variables, GRB.MINIMIZE)
+        self.lp.setObjective(obj_vec @ variables, GRB.MINIMIZE)
 
         #self.m.display() ## debug display model
 
         start = time.perf_counter()
-        self.model.optimize()
+        self.lp.optimize()
         diff = time.perf_counter() - start
 
 
-        if self.model.status != GRB.OPTIMAL:
+        if self.lp.status != GRB.OPTIMAL:
             if self.print_failure_msg:
                 statuses = ["ZERO?", "LOADED", "OPTIMAL", "INFEASIBLE", "INF_OR_UNBD", "UNBOUNDED", "CUTOFF",
                             "ITERATION_LIMIT", "NODE_LIMIT", "TIME_LIMIT", "SOL_LIMIT", "INTERRUPTED", "NUMERIC",
                             "SUBOPTIMAL", "INPROGRESS", "USER_OBJ_LIMIT"]
 
-                code = self.model.status
+                code = self.lp.status
                 status = statuses[code]
                 print(f"Gurobi.optimize() failed: status was {status} ({code})")
 
@@ -244,4 +262,5 @@ class LpInstanceGB(Freezable):
 
 class UnsatError(RuntimeError):
     'raised if an LP is infeasible'
+
     
