@@ -116,6 +116,18 @@ class LpInstanceGB(Freezable):
         Timers.toc('deserialize')
     
 
+    def __str__(self, plain_text=False):
+        'get the LP as string (useful for debugging)'
+
+        rows = self.get_num_rows()
+        cols = self.get_num_cols()
+        rv = "Lp has {} columns (variables) and {} rows (constraints)\n".format(cols, rows)
+
+        rv += self.lp.display()
+
+        return rv
+    
+
     def add_var(self, name, lb, ub):
         """add a bounded variable, get stored in self.vars"""
 
