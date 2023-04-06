@@ -99,18 +99,18 @@ class LpInstanceGB(Freezable):
 
         A_sparse, rhs, lbs, ubs, var_names = self.lp
 
-        assert len(ubs) == len(var_names)
-
         self.lp = gp.Model()
+        self.lp.setParam('OutputFlag', False)
 
         n_variables = len(var_names)
         x = self.lp.addVars(n_variables, lb=lbs, ub=ubs, name=var_names)
-
+        vars = x.select() # use select method to get values of tupledict as a list
         # Define constraints
         for i in range(len(rhs)):
-            lhs_expr = gp.quicksum(A_sparse[i, j]*x[j] for j in range(n_variables))
-            self.lp.addConstr(lhs_expr <= rhs[i], name=f"R{i}")
-        
+            vec = np.squeeze(A_sparse[i].toarray())
+            lhs_expr = LinExpr(vec, vars) 
+            self.lp.addLConstr(lhs_expr, GRB.LESS_EQUAL, rhs[i], name=f"R{i}")
+
         self.lp.update()
         
         Timers.toc('deserialize')
@@ -239,7 +239,9 @@ class LpInstanceGB(Freezable):
         #self.m.display() ## debug display model
 
         start = time.perf_counter()
+        Timers.tic('GB optimize')
         self.lp.optimize()
+        Timers.toc('GB optimize')
         diff = time.perf_counter() - start
 
 
