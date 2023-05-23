@@ -221,7 +221,7 @@ class LpInstanceGB(Freezable):
         """return minimum point or raise MinimizeFailed exception"""
 
         if obj_vec is None:
-            obj_vec = [0] * self.get_num_cols()
+            obj_vec = np.zeros(self.get_num_cols(), dtype='float')
 
         min_start = time.perf_counter()
 
@@ -257,12 +257,7 @@ class LpInstanceGB(Freezable):
 
             rv = None
         else:
-            vals: List[float] = []
-
-            for v in variables:
-                # assert self.vars[len(vals)] == v
-                vals.append(v.x)
-
+            vals = [v.x for v in variables]
             rv = np.array(vals)
 
 
