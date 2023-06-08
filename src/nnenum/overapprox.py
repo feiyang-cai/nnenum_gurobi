@@ -654,11 +654,6 @@ class OverapproxCanceledException(Exception):
     'an exception used for when overapproximation analysis is canceled'
 
 
-if Settings.LP_SOLVER == 'GLPK':
-    from nnenum.lpinstance_glpk import LpInstanceGLPK as LpInstance
-else:
-    from nnenum.lpinstance_gb import LpInstanceGB as LpInstance
-
 class DeeppolyOverapprox(Freezable):
     '''
     Deeppoly overapproximation
@@ -689,14 +684,6 @@ class DeeppolyOverapprox(Freezable):
         self.type_string = type_string
         self.max_gens = max_gens
 
-        if type_string == 'deeppoly.area':
-            self.relu_update_func = relu_update_best_area_deeppoly
-        elif type_string == 'zono.ybloat':
-            self.relu_update_func = relu_update_ybloat_zono
-        else:
-            assert type_string == 'zono.interval'
-            self.relu_update_func = relu_update_interval_zono
-
     def __str__(self):
         return f"[ZonoOverapprox ({self.type_string})]"
 
@@ -705,44 +692,6 @@ class DeeppolyOverapprox(Freezable):
 
         if self.get_num_gens() + len(split_indices) > self.max_gens:
             raise OverapproxCanceledException(f'{self.type_string} gens exceeds limit (> {self.max_gens})')
-        
-
-        # n_neuron_layer = len(layer_bounds) # number of neurons in this layer(Relu layer has same number neurons as the previous one)
-        # for idx in range(n_neuron_layer):
-        #     # case1: negative upper bound
-        #     if self.ubs[idx] <= 0:
-        #         self.ubcoef[idx] = 0.0
-        #         self.ubconst[idx] = 0.0
-        #         self.lbcoef[idx] = 0.0
-        #         self.lbconst[idx] = 0.0
-
-        #         self.ubs[idx], self.lbs[idx] = 0.0, 0.0
-
-        #     # case2: positive lower bound
-        #     elif self.lbs[idx] >= 0:
-        #         continue
-            
-        #     # case3: convex approximation
-        #     else:
-        #         if self.ubs[idx] <= -1 * self.lbs[idx]:
-        #             factor = self.ubs[idx]/(self.ubs[idx] - self.lbs[idx]) # factor is always positive
-        #             bias = -self.lbs[idx] * self.ubs[idx]/(self.ubs[idx] - self.lbs[idx])
-
-        #             self.ubcoef[idx] = factor * self.ubcoef[idx] 
-        #             self.ubconst[idx] = factor * self.ubconst[idx] + bias
-                    
-        #             self.lbcoef[idx] = 0.0
-        #             self.lbconst[idx] = 0.0
-
-        #             self.ubs[idx], self.lbs[idx] = self.ubs[idx], 0.0
-        #         else:
-        #             factor = self.ubs[idx]/(self.ubs[idx] - self.lbs[idx])
-        #             bias = -self.lbs[idx] * self.ubs[idx]/(self.ubs[idx] - self.lbs[idx])
-
-        #             self.ubcoef[idx] = factor * self.ubcoef[idx]
-        #             self.ubconst[idx] = factor * self.ubconst[idx] + bias
-
-        #             self.ubs[idx], self.lbs[idx] = self.ubs[idx], self.lbs[idx]
 
         # case1: negative upper bound
         idx = np.where(self.ubs <= 0)
@@ -780,9 +729,6 @@ class DeeppolyOverapprox(Freezable):
 
             self.ubs[idx], self.lbs[idx] = self.ubs[idx], self.lbs[idx]
 
-
-        # update_deeppoly(self.zono, self.relu_update_func, layer_bounds, split_indices, zero_indices)
-
     def transform_linear(self, layer):
         'affine transformation'
 
@@ -813,81 +759,6 @@ class DeeppolyOverapprox(Freezable):
         self.lbs += np.where(self.lbcoef < 0, self.lbcoef, 0) @ self.inputbounds[:, 1]
         self.lbs += self.lbconst
 
-    def transform_linear_unoptimized(self, layer):
-        'affine transformation'
-
-        ubcoef_nl = np.copy(layer.weights)  # upper bounds coefficients of new layer
-        ubconst_nl = np.copy(layer.biases)  # upper bounds constants of new layer
-        lbcoef_nl = np.copy(layer.weights)  # lower bounds coefficients of new layer
-        lbconst_nl = np.copy(layer.biases)  # lower bounds constants of new layer
-
-        num_cur_neuron = ubcoef_nl.shape[0] # number of neurons in the current layer
-        cur_var = ubcoef_nl.shape[1]    # number of variables that the current layer equations written in
-        pre_var = self.ubcoef.shape[1]  # number of variables that the previous layer equations written in
-        
-        updated_ubcoef_nl = np.zeros((num_cur_neuron, pre_var))
-        updated_lbcoef_nl = np.zeros((num_cur_neuron, pre_var))
-        # back substitue symbolic expressions based on the previous layer(previous layer already written by input variables) 
-        for idx in range(num_cur_neuron):
-            new_ucoef = np.zeros(pre_var) 
-            new_lcoef = np.zeros(pre_var)
-            new_ucst = 0.0
-            new_lcst = 0.0
-            for i in range(cur_var):
-                for j in range(pre_var):
-                    if ubcoef_nl[idx][i] >= 0:
-                        new_ucoef[j] += ubcoef_nl[idx][i] * self.ubcoef[i][j]
-                    else:
-                        new_ucoef[j] += ubcoef_nl[idx][i] * self.lbcoef[i][j] 
-
-                    if lbcoef_nl[idx][i] >= 0:
-                        new_lcoef[j] += lbcoef_nl[idx][i] * self.lbcoef[i][j]
-                    else:
-                        new_lcoef[j] += lbcoef_nl[idx][i] * self.ubcoef[i][j]  
-                
-                if ubcoef_nl[idx][i] >= 0:
-                    new_ucst += ubcoef_nl[idx][i] * self.ubconst[i]
-                else:
-                    new_ucst += ubcoef_nl[idx][i] * self.lbconst[i]  
-                
-                if lbcoef_nl[idx][i] >= 0:
-                    new_lcst += lbcoef_nl[idx][i] * self.lbconst[i]
-                else:
-                    new_lcst += lbcoef_nl[idx][i] * self.ubconst[i]  
-            updated_ubcoef_nl[idx] = new_ucoef
-            ubconst_nl[idx] += new_ucst
-            updated_lbcoef_nl[idx] = new_lcoef
-            lbconst_nl[idx] += new_lcst
-
-        ubcoef_nl = updated_ubcoef_nl
-        lbcoef_nl = updated_lbcoef_nl
-
-        self.ubcoef = ubcoef_nl
-        self.ubconst = ubconst_nl
-        self.lbcoef = lbcoef_nl
-        self.lbconst = lbconst_nl
-
-        self.ubs = np.zeros(num_cur_neuron)
-        self.lbs = np.zeros(num_cur_neuron)
-        for idx in range(num_cur_neuron):
-            # find upper bounds and lower bounds based on inputbounds
-            ub, lb = 0.0, 0.0
-            for i in range(len(self.inputbounds)): # iterate through input layer
-                if self.ubcoef[idx][i] >= 0:
-                    ub += self.ubcoef[idx][i] * self.inputbounds[i, 1]
-                else:
-                    ub += self.ubcoef[idx][i] * self.inputbounds[i, 0]
-
-                if self.lbcoef[idx][i] >= 0:
-                    lb += self.lbcoef[idx][i] * self.inputbounds[i, 0]
-                else:
-                    lb += self.lbcoef[idx][i] * self.inputbounds[i, 1]
-            ub += self.ubconst[idx]
-            lb += self.lbconst[idx]
-            self.ubs[idx], self.lbs[idx] = ub, lb
-
-        # layer.transform_zono(self.zono)
-
     def tighten_bounds(self, layer_bounds, _split_indices, _sim, _check_cancel_func, _depth):
         '''
         update the passed-in layer bounds
@@ -905,7 +776,7 @@ class DeeppolyOverapprox(Freezable):
             layer_bounds[:, 0] = np.maximum(layer_bounds[:, 0], box_bounds[:, 0])
             layer_bounds[:, 1] = np.minimum(layer_bounds[:, 1], box_bounds[:, 1])
         
-            # doublecheck? update ubs & lbs based on layer_bounds  
+            # update ubs & lbs based on layer_bounds  
             self.ubs = np.copy(layer_bounds[:, 1])
             self.lbs = np.copy(layer_bounds[:, 0])
         
@@ -914,23 +785,9 @@ class DeeppolyOverapprox(Freezable):
     def check_spec(self, spec, _check_cancel_func):
         'returns is_safe?'
 
-        # todo: evaluate whether this helps
-        # check_cancel_func()
-
-        # self.lpi = LpInstance()
-        # for i, (lb, ub) in enumerate(self.inputbounds):
-        #         self.lpi.add_double_bounded_cols([f"x{i}"], lb, ub)
-
-        # names = [f"x{i}" for i in range(self.ubcoef.shape[1])]
-        # self.lpi.add_cols(names)
-
         coef_nl = spec.mat
+        
         # back substitution
-        # updated_ubcoef_nl = np.where(coef_nl >= 0, coef_nl, 0) @ self.ubcoef
-        # updated_ubcoef_nl += np.where(coef_nl < 0, coef_nl, 0) @ self.lbcoef
-        # updated_ubconst_nl = np.where(coef_nl >= 0, coef_nl, 0) @ self.ubconst
-        # updated_ubconst_nl += np.where(coef_nl < 0, coef_nl, 0) @ self.lbconst
-
         updated_lbcoef_nl = np.where(coef_nl >= 0, coef_nl, 0) @ self.lbcoef
         updated_lbcoef_nl += np.where(coef_nl < 0, coef_nl, 0) @ self.ubcoef
         updated_lbconst_nl = np.where(coef_nl >= 0, coef_nl, 0) @ self.lbconst
@@ -943,142 +800,11 @@ class DeeppolyOverapprox(Freezable):
         for i, row in enumerate(updated_lbcoef_nl):
             if min_vals[i] > spec.rhs[i]:
                 might_violate = False
-                print('verified by deeppoly')
+                # print('verified by deeppoly')
                 return not might_violate
         return not might_violate
-    
-        hs_list = []    # half space
-        rhs_list = []   # right hand side
-        normalize = False #True
-        # for i, row in enumerate(updated_ubcoef_nl):
-        for i, row in enumerate(updated_lbcoef_nl):
-            rhs = spec.rhs[i] - updated_lbconst_nl[i]
-            hs_list.append(row)
-            rhs_list.append(rhs)
-            self.lpi.add_dense_row(row, rhs, normalize=normalize)
-
-        # might_violate = True
-        # for i, row in enumerate(updated_ubcoef_nl):
-        #     self.lpi = LpInstance()
-        #     for j, (lb, ub) in enumerate(self.inputbounds):
-        #             self.lpi.add_double_bounded_cols([f"x{j}"], lb, ub)
-        #     # self.lpi.add_dense_row(row, rhs, normalize=normalize)
-        #     winput = self.lpi.minimize(row, fail_on_unsat=False)
-        #     print(f'winput: {winput}')
-        #     if winput is not None and updated_ubcoef_nl @ winput + updated_ubconst_nl[i] > spec.rhs[i]:
-        #         might_violate = False
-        #         print('verified by deeppoly')
-        #         return not might_violate
-        
-        winput = self.lpi.minimize(None, fail_on_unsat=False)
-
-        # if winput is not None: 
-        #     might_violate = False
-        #     print('verified by deeppoly')
-        if winput is None:
-            # when we check all the specification directions at the same time, there is no violaton
-            print('verified by deeppoly')
-            is_violation = False
-        else:
-            is_violation = True
-        #     rv = copy
-        #     #woutput = np.dot(copy.a_mat, winput) + copy.bias
-        #     #assert self.is_violation(woutput), f"witness output {woutput} was not a violation of {self}"
-
-        #     # also comput input box bounds
-        #     if domain_contraction:
-        #         Timers.tic('violation_update_input_box_bounds')
-        #         rv.update_input_box_bounds(hs_list, rhs_list)
-        #         Timers.toc('violation_update_input_box_bounds')
-
-        # Timers.toc('get_violation_star')
-
-        return not is_violation
-        return not might_violate
-
-        
-
-        self.violation_star = spec.get_violation_deeppoly(self.lpi, domain_contraction=False)
-
-        return self.violation_star is None
         
     def get_num_gens(self):
         'get the number of generators in the overapproximation (-1 if inapplicable)'
         
         return -1
-        # return self.zono.mat_t.shape[1]
-
-def update_deeppoly(z, relu_update_func, bounds, splits, zeros):
-    'update a zono with the current bounds'
-
-    # this assumes apply_linear_map was done first, so that only ReLU processing remains
-    lb_len = bounds.shape[0]
-    assert len(z.center) == lb_len, "zonotope dims ({len(z.center)}) doesn't match layer_bounds {lb_len}"
-
-    gen_mat_t = z.mat_t
-    center = z.center
-
-    # these are the bounds on the input for each neuron in the current layer
-    Timers.tic('assign_zeros')
-    center[zeros] = 0
-    gen_mat_t[zeros, :] = 0
-    Timers.toc('assign_zeros')
-
-    if splits.size > 0:
-        new_generators = np.zeros((gen_mat_t.shape[0], len(splits)), dtype=z.dtype)
-
-        Timers.tic('relu_update')
-        for i, split_index in enumerate(splits):
-            lb, ub = bounds[split_index]
-
-            # need to add a new generator for the overapproximation
-            relu_update_func(lb, ub, split_index, gen_mat_t, center, new_generators[:, i])
-        Timers.toc('relu_update')
-
-        Timers.tic('stack_new_generators')
-        # need to update zonotope with new generators
-        z.init_bounds += [(-1, 1) for _ in range(len(splits))]
-
-        z.mat_t = np.hstack([z.mat_t, new_generators])
-
-        Timers.toc('stack_new_generators')
-
-def relu_update_interval_zono(_lb, ub, output_dim, gen_mat_t, center, new_gen):
-    '''update one dimension (output) of a zonotope due to a relu split
-    This function produces the interval zonotope.
-    '''
-
-    gen_mat_t[output_dim] = 0
-    
-    y_offset = ub / 2.0
-    center[output_dim] = y_offset
-
-    new_gen[output_dim] = y_offset
-
-def relu_update_ybloat_zono(lb, _ub, output_dim, _gen_mat_t, center, new_gen):
-    '''update one dimension (output) of a zonotope due to a relu split
-    This function produces the ybloat zonotope (new generator is vertical).
-    '''
-
-    y_offset = -lb / 2.0
-
-    center[output_dim] += y_offset
-    new_gen[output_dim] = y_offset
-
-def relu_update_best_area_deeppoly(lb, ub, output_dim, gen_mat_t, center, new_gen):
-    '''update one dimension (output) of a zonotope due to a relu split
-    This function produces the best-area zonotope.
-    '''
-
-    assert lb < Settings.SPLIT_TOLERANCE
-    assert ub > -Settings.SPLIT_TOLERANCE
-
-    slope_lambda = ub / (ub - lb) 
-    gen_mat_t[output_dim] *= slope_lambda
-
-    # add new generator value to bm
-    mu = -1 * (ub * lb) / (2 * (ub - lb))
-    new_gen[output_dim] = mu
-
-    # modify center
-    center[output_dim] = center[output_dim] * slope_lambda + mu
