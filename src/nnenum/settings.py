@@ -25,6 +25,8 @@ class Settings(metaclass=FreezableMeta):
     @classmethod
     def reset(cls):
         'assign default settings'
+        
+        cls.LP_SOLVER = "GLPK" # options: 'GLPK', 'Gurobi' 
 
         # settings / optimizations
         num_cores = multiprocessing.cpu_count()
@@ -69,12 +71,12 @@ class Settings(metaclass=FreezableMeta):
         cls.CONTRACT_ZONOTOPE_LP = True # contract zonotope using LPs (even more accurate prefilter, but even slower)
         cls.CONTRACT_LP_OPTIMIZED = True # use optimized lp contraction
         cls.CONTRACT_LP_TRACK_WITNESSES = True # track box bounds witnesses to reduce LP solving
-        cls.CONTRACT_LP_CHECK_EPSILON = 1e-4 # numerical error tolerated when doing contractions before error, None=skip
+        cls.CONTRACT_LP_CHECK_EPSILON = 1e-4 # numerical error tol['star.lp'],erated when doing contractions before error, None=skip
 
         # the types of overapproximation to use in each round
-        cls.OVERAPPROX_TYPES = [['zono.area'],
-                                ['zono.area', 'zono.ybloat', 'zono.interval'],
-                                ['zono.area', 'zono.ybloat', 'zono.interval', 'star.lp']]
+        cls.OVERAPPROX_TYPES = [['deeppoly.area'], ['zono.area'], 
+                                ['zono.area', 'zono.ybloat', 'zono.interval', 'deeppoly.area'],
+                                ['zono.area', 'zono.ybloat', 'zono.interval', 'deeppoly.area', 'star.lp']] #['deeppoly.area'], , 'star.lp'
 
         cls.OVERAPPROX_NEAR_ROOT_MAX_SPLITS = 2
         cls.OVERAPPROX_TYPES_NEAR_ROOT = cls.OVERAPPROX_TYPES
@@ -90,8 +92,8 @@ class Settings(metaclass=FreezableMeta):
         cls.PRINT_BRANCH_TUPLES = False
 
         cls.TRY_QUICK_OVERAPPROX = True
-        cls.QUICK_OVERAPPROX_TYPES = [['zono.area'],
-                                      ['zono.area', 'zono.ybloat', 'zono.interval']]
+        cls.QUICK_OVERAPPROX_TYPES = [['deeppoly.area'], ['zono.area'],
+                                      ['zono.area', 'zono.ybloat', 'zono.interval', 'deeppoly.area']]
         cls.PRINT_OVERAPPROX_OUTPUT = True # print progress on first overapprox
 
         # one_norm is especially good at finding counterexamples
@@ -125,6 +127,6 @@ class Settings(metaclass=FreezableMeta):
         # generally it should be safe to add any linear layers to the whitelist
         cls.ONNX_WHITELIST = ['Add', 'AveragePool', 'Constant', 'Concat', 'Conv', 'Flatten', 'Gather', \
                               'Gemm', 'MatMul', 'Mul', 'Reshape', 'Relu', 'Shape', 'Sub', 'Unsqueeze', 'Slice', \
-                              'Dropout']
+                              'Dropout', 'BatchNormalization', 'ConvTranspose']
 
         cls.ONNX_BLACKLIST = ['Atan', 'MaxPool', 'Sigmoid', 'Tanh'] # unsupported nonlinear laters

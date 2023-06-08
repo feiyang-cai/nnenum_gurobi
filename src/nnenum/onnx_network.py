@@ -133,6 +133,41 @@ class LinearOnnxSubnetworkLayer(Freezable):
         end_center = self.execute(start_center)
         zono.center = nn_flatten(end_center)
 
+    def transform_deeppoly(self):
+        'transform the deeppoly'
+
+        # dims = np.prod(self.network.layers[self.layer_num].get_output_shape()[1:])
+        dims = np.prod(self.input_shape[1:])
+        weights = np.identity(dims, dtype=self.dtype)
+        biases = np.zeros(dims, dtype=self.dtype)
+
+        cols = []
+
+        for col in range(weights.shape[1]):
+            #print(f".transforming star: {col} / {star.a_mat.shape[1]})")
+            vec = weights[:, col]
+            vec = nn_unflatten(vec, self.input_shape)
+            
+            res = self.execute(vec)
+            res = res - self.zero_output
+            res = nn_flatten(res)
+
+            cols.append(res)
+
+        dtype = biases.dtype
+        weights = np.array(cols, dtype=dtype).transpose()
+
+        vec = nn_unflatten(biases, self.input_shape)
+        res = self.execute(vec)
+        biases = nn_flatten(res)
+
+        ubcoef_nl = np.copy(weights)  # upper bounds coefficients of new layer
+        ubconst_nl = np.copy(biases)  # upper bounds constants of new layer
+        lbcoef_nl = np.copy(weights)  # lower bounds coefficients of new layer
+        lbconst_nl = np.copy(biases)  # lower bounds constants of new layer
+        return ubcoef_nl, ubconst_nl, lbcoef_nl, lbconst_nl
+
+
     def execute(self, state):
         '''execute on a concrete state
  

@@ -306,6 +306,14 @@ class AddLayer(Freezable):
 
         zono.center += nn_flatten(self.vec)
 
+    def transform_deeppoly(self):
+        'apply the linear transformation part of the layer to the passed-in deeppoly weights (not relu)'
+        ubcoef_nl = np.identity(len(self.vec))  # upper bounds coefficients of new layer
+        ubconst_nl = nn_flatten(self.vec)  # upper bounds constants of new layer
+        lbcoef_nl = np.identity(len(self.vec))  # lower bounds coefficients of new layer
+        lbconst_nl = nn_flatten(self.vec)  # lower bounds constants of new layer
+        return ubcoef_nl, ubconst_nl, lbcoef_nl, lbconst_nl
+
     def execute(self, state):
         '''execute on a concrete state
  
@@ -369,6 +377,14 @@ class MatMulLayer(Freezable):
         zono.mat_t = np.dot(self.mat, zono.mat_t)
         zono.center = np.dot(self.mat, zono.center)
 
+    def transform_deeppoly(self):
+        'apply the linear transformation part of the layer to the passed-in deeppoly weights (not relu)'
+        ubcoef_nl = np.copy(self.mat)  # upper bounds coefficients of new layer
+        ubconst_nl = np.zeros(len(self.mat))  # upper bounds constants of new layer
+        lbcoef_nl = np.copy(self.mat)  # lower bounds coefficients of new layer
+        lbconst_nl = np.zeros(len(self.mat))  # lower bounds constants of new layer
+        return ubcoef_nl, ubconst_nl, lbcoef_nl, lbconst_nl
+    
     def execute(self, state):
         '''execute on a concrete state
  
@@ -464,6 +480,14 @@ class FullyConnectedLayer(Freezable):
 
         zono.mat_t = np.dot(self.weights, zono.mat_t)
         zono.center = np.dot(self.weights, zono.center) + self.biases
+
+    def transform_deeppoly(self):
+        'apply the linear transformation part of the layer to the passed-in deeppoly weights (not relu)'
+        ubcoef_nl = np.copy(self.weights)  # upper bounds coefficients of new layer
+        ubconst_nl = np.copy(self.biases)  # upper bounds constants of new layer
+        lbcoef_nl = np.copy(self.weights)  # lower bounds coefficients of new layer
+        lbconst_nl = np.copy(self.biases)  # lower bounds constants of new layer
+        return ubcoef_nl, ubconst_nl, lbcoef_nl, lbconst_nl
 
     def execute(self, state):
         '''execute the fully connected layer on a concrete state
