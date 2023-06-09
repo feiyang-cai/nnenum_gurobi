@@ -5,9 +5,11 @@ Stanley Bak
 '''
 
 import numpy as np
-
-from nnenum.lpinstance_gb import LpInstanceGB as LpInstance
-# from nnenum.lpinstance_glpk import LpInstanceGLPK as LpInstance
+from nnenum.settings import Settings
+if Settings.LP_SOLVER == 'GLPK':
+    from nnenum.lpinstance_glpk import LpInstanceGLPK as LpInstance
+else:
+    from nnenum.lpinstance_gb import LpInstanceGB as LpInstance
 # from nnenum.lpinstance import LpInstance
 from nnenum.util import Freezable
 from nnenum.settings import Settings
