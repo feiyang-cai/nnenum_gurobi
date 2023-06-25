@@ -9,7 +9,7 @@ from nnenum.lp_star import LpStar
 from nnenum.prefilter import Prefilter
 from nnenum.timerutil import Timers
 from nnenum.util import Freezable, compress_init_box
-from nnenum.network import FullyConnectedLayer, ReluLayer, FlattenLayer, AddLayer, MatMulLayer
+from nnenum.network import FullyConnectedLayer, ReluLayer, FlattenLayer, AddLayer, MatMulLayer, TaxiNetDynamicsLayer
 from nnenum.specification import DisjunctiveSpec
 
 from nnenum.settings import Settings
@@ -146,6 +146,10 @@ class LpStarState(Freezable):
                     break
 
                 self.next_layer()
+            elif isinstance(layer, TaxiNetDynamicsLayer):
+                self.apply_dynamics_layer(network)
+
+                self.next_layer()
             else:
                 # non-relu layer
                 self.apply_linear_layer(network)
@@ -180,6 +184,26 @@ class LpStarState(Freezable):
 
         Timers.toc('starstate.apply_linear_layer')
 
+    def apply_dynamics_layer(self, network):
+        'apply dynamics part of a layer'
+
+        Timers.tic('starstate.apply_linear_layer')
+
+        layer = network.layers[self.cur_layer]
+        assert not isinstance(layer, ReluLayer)
+        assert self.star
+        assert self.prefilter
+
+        _, additional_init_box = layer.transform_star(self.star)
+
+        # update zonotope shallow copy
+        self.prefilter.zono.mat_t = self.star.a_mat
+        self.prefilter.zono.center = self.star.bias
+
+        self.prefilter.apply_dynamics_layer(layer, self.star, additional_init_box)
+
+        Timers.toc('starstate.apply_linear_layer')
+        
     def split_enumerate(self, i, network, spec, start_time):
         '''
         helper for execute_relus
