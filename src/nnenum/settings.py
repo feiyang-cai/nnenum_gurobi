@@ -26,7 +26,7 @@ class Settings(metaclass=FreezableMeta):
     def reset(cls):
         'assign default settings'
         
-        cls.LP_SOLVER = "GLPK" # options: 'GLPK', 'Gurobi' 
+        cls.LP_SOLVER = "Gurobi" # options: 'GLPK', 'Gurobi' 
 
         # settings / optimizations
         num_cores = multiprocessing.cpu_count()

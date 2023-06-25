@@ -151,6 +151,13 @@ class LpInstanceGB(Freezable):
             for i in range(num_vars):
                 self.lp.addVar(lb=lb, ub=ub, vtype=GRB.CONTINUOUS, name=names[i])
                 self.lp.update()
+    
+    def del_cols(self, indices):
+        assert indices is not None and isinstance(indices, list), "expected list of indices to delete"
+        remove_var = [self.lp.getVars()[indice-1] for indice in indices]
+        self.lp.remove(remove_var)
+        self.lp.update()
+        #self.names = [name for i, name in enumerate(self.names) if i+1 not in indices]
 
     def add_positive_cols(self, names):
         'add a certain number of columns to the LP with positive bounds'

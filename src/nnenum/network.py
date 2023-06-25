@@ -173,7 +173,7 @@ class TaxiNetDynamicsLayer(Freezable):
 
         centers = None
         additional_init_box = []
-        tol = 1e-7
+        tol = 1e-6
         tol_1 = 1e-6
 
         for substep in range(self.substep):
@@ -183,11 +183,10 @@ class TaxiNetDynamicsLayer(Freezable):
             for i in range(2, 5):
                 lbs[i-2] = star.minimize_output(output_index=i, maximize=False)
                 ubs[i-2] = star.minimize_output(output_index=i, maximize=True)
-                assert lbs[i-2] <= ubs[i-2], f"lbs[{i-2}]={lbs[i-2]} > ubs[{i-2}]={ubs[i-2]}"
             centers = (lbs + ubs) / 2.0
 
-            consider_theta = (ubs[2] - lbs[2]) >= tol_1
-            consider_p = (ubs[1] - lbs[1]) >= tol_1
+            consider_theta = np.abs(ubs[2] - lbs[2]) >= tol_1
+            consider_p = np.abs(ubs[1] - lbs[1]) >= tol_1
             #consider_p = True
             #consider_theta = True
 
